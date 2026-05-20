@@ -1,61 +1,23 @@
-# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-.eggs/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-htmlcov/
-.coverage
-.coverage.*
-coverage.xml
-
-# ── Virtual environments ───────────────────────────────────────────────────────
 .venv/
 venv/
-env/
-ENV/
-
-# ── Environment / secrets ─────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
 .env
-.env.local
-.env.*.local
-*.pem
-*.key
-
-# ── OS files ──────────────────────────────────────────────────────────────────
+*.db
+*.sqlite3
+*.log
 .DS_Store
-Thumbs.db
-desktop.ini
-
-# ── Editor / IDE ──────────────────────────────────────────────────────────────
-.vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# ── LaTeX build artefacts (scoped to report/ only — NOT global *.pdf) ─────────
+.vscode/
+dist/
+build/
+*.egg-info/
 report/*.aux
 report/*.log
 report/*.out
 report/*.toc
-report/*.fls
-report/*.fdb_latexmk
 report/*.synctex.gz
-report/*.bbl
-report/*.blg
-
-# ── Docker ────────────────────────────────────────────────────────────────────
-.docker/
-
-# ── Data / local DB ───────────────────────────────────────────────────────────
-*.db
-*.sqlite3
-data/cache/
