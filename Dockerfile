@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ---- Runtime stage ----
 FROM python:3.12-slim
 LABEL org.opencontainers.image.description="AIENG Final Project — Async Research Assistant"
-LABEL org.opencontainers.image.source="https://github.com/YOUR/REPO"
+LABEL org.opencontainers.image.source="https://github.com/abdurahmanligulnisa/research-assistant.git"
 
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH" \
