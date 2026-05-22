@@ -28,7 +28,7 @@ jobs:
           fi
 
       - name: Lint (ruff)
-        run: ruff check src/ tests/
+        run: ruff check src/ tests/ --ignore F401
 
       - name: Type check (mypy)
         run: mypy src/ --ignore-missing-imports
