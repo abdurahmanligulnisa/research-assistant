@@ -17,13 +17,14 @@ parallel, then synthesizes a single cited answer using an LLM.
 4. [Setup & Installation](#4-setup--installation)
 5. [Environment Configuration](#5-environment-configuration)
 6. [Running the Project](#6-running-the-project)
-7. [Database Initialization](#7-database-initialization)
-8. [CLI Usage & Examples](#8-cli-usage--examples)
-9. [Running Tests](#9-running-tests)
-10. [Benchmark: Sequential vs Concurrent](#10-benchmark-sequential-vs-concurrent)
-11. [Docker](#11-docker)
-12. [Project Structure](#12-project-structure)
-13. [Known Limitations](#13-known-limitations)
+7. [Web UI (Streamlit)](#7-web-ui-streamlit)
+8. [Database Initialization](#8-database-initialization)
+9. [CLI Usage & Examples](#9-cli-usage--examples)
+10. [Running Tests](#10-running-tests)
+11. [Benchmark: Sequential vs Concurrent](#11-benchmark-sequential-vs-concurrent)
+12. [Docker](#12-docker)
+13. [Project Structure](#13-project-structure)
+14. [Known Limitations](#14-known-limitations)
 
 ---
 
@@ -200,7 +201,82 @@ python -m researcher --log-level DEBUG ask "AI safety"
 
 ---
 
-## 7. Database Initialization
+## 7. Web UI (Streamlit) Bonus
+
+A browser-based interface for the research assistant — ask questions, view
+cited answers, and browse session history, all without the CLI.
+
+### Run locally
+
+```bash
+# Make sure .env is filled in with valid API keys
+streamlit run streamlit_app.py
+```
+
+Then open: **http://localhost:8501**
+
+### Run with Docker (single container, no history)
+
+```bash
+# Build the image first
+docker build --platform linux/amd64 -t researcher .
+
+# Run Streamlit (history disabled — no PostgreSQL)
+docker run --env-file .env -p 8501:8501 researcher streamlit run streamlit_app.py --server.address=0.0.0.0
+```
+
+Then open: **http://localhost:8501**
+
+> **Note:** In single-container mode, PostgreSQL is not available so
+> `researcher history` is silently skipped. Use Docker Compose below
+> for full history persistence.
+
+### Run with Docker Compose (with PostgreSQL history)
+
+This is the recommended way to run Streamlit — it starts both the app and
+PostgreSQL together so history is fully persisted.
+
+```bash
+# 1. Copy and fill in .env (set API keys — DATABASE_URL is pre-configured in docker-compose.yml)
+cp .env.example .env
+
+# 2. Build and start both services (app + PostgreSQL)
+docker compose up --build
+
+# 3. Open the web UI
+# http://localhost:8501
+```
+
+To run in the background:
+```bash
+docker compose up --build -d
+docker compose logs -f app     # follow app logs
+```
+
+To run a one-off research question via Compose:
+```bash
+docker compose run app python -m researcher ask "What is quantum computing?"
+```
+
+To stop and clean up:
+```bash
+docker compose down            # stop containers, keep DB volume
+docker compose down -v         # stop + delete DB volume (wipes history)
+```
+
+The Streamlit UI supports:
+- Asking research questions with source selection (wiki / arxiv / web)
+- `--no-cache` toggle for always-fresh results
+- Viewing cited answers with numbered references
+- Browsing session history — **persisted to PostgreSQL via Docker Compose**
+
+> **Note:** `DATABASE_URL` inside the container points to the `db` service
+> (`postgresql://...@db:5432/research`), not `localhost`. This is already
+> configured in `docker-compose.yml` — do not change it to `localhost`.
+
+---
+
+## 8. Database Initialization
 
 The database schema is created automatically on first use (`CREATE TABLE IF NOT EXISTS`).  
 If you want to create it explicitly:
@@ -239,7 +315,7 @@ CREATE INDEX IF NOT EXISTS idx_research_sessions_created_at
 
 ---
 
-## 8. CLI Usage & Examples
+## 9. CLI Usage & Examples
 
 ### `ask` command
 
@@ -285,7 +361,7 @@ Options:
 
 ---
 
-## 9. Running Tests
+## 10. Running Tests
 
 ```bash
 # Full test suite with coverage
@@ -306,7 +382,7 @@ All tests are **fully offline** — AI module and HTTP layer are mocked.
 
 ---
 
-## 10. Benchmark: Sequential vs Concurrent
+## 11. Benchmark: Sequential vs Concurrent
 
 ### Offline simulation (no API keys required)
 
@@ -361,7 +437,7 @@ concurrency and rate-protects external APIs.
 
 ---
 
-## 11. Docker
+## 12. Docker
 
 ### Build & run (offline demo)
 
@@ -393,7 +469,7 @@ docker compose down -v                         # stop + remove volumes
 
 ---
 
-## 12. Project Structure
+## 13. Project Structure
 
 ```
 research-assistant/
@@ -490,7 +566,7 @@ research-assistant/
 ```
 ---
 
-## 13. Known Limitations
+## 14. Known Limitations
 
 - **In-process cache is ephemeral by design.** `src/services/cache.py`
   uses a plain Python dict as its backing store. The cache is **wiped on
@@ -531,4 +607,4 @@ research-assistant/
   `SERIAL`, `TIMESTAMPTZ`) which is PostgreSQL-specific. Use the provided
   Docker Compose setup for a zero-config local PostgreSQL.
 
-See `report/report.pdf` §7 for a full discussion of limitations and future work.
+See `report/report.pdf` §8 for a full discussion of limitations and future work.
