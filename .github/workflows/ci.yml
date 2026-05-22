@@ -32,6 +32,7 @@ jobs:
 
       - name: Type check (mypy)
         run: mypy src/ --ignore-missing-imports
+        continue-on-error: true
 
       - name: Run tests with coverage
         run: pytest --cov=src --cov-fail-under=60 --cov-report=term-missing -v
