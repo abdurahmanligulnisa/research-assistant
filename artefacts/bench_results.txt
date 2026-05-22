@@ -1,0 +1,15 @@
+Benchmarking 5 question(s) x 3 sources ...
+Mode: LIVE (real network - API keys must be set in environment)
+
+Mode              Time (s)    Speedup
+--------------------------------------
+Sequential          23.696       1.0x
+Concurrent          14.982       1.6x
+
+N=5, max_concurrent=5 (semaphore), run=live
+Command: python scripts/bench.py --n 5
+
+Interpretation:
+  - Sequential: awaits wiki -> arxiv -> web one after the other for each question
+  - Concurrent: asyncio.gather(wiki, arxiv, web) per question, bounded by semaphore
+  - Speedup of 1.6x measured over the real network

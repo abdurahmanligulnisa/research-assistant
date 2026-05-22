@@ -1,0 +1,32 @@
+========================================================================
+Researching: What is photosynthesis and what are its main stages?
+
+  retrieved 3 sources (1 wiki, 1 arxiv, 1 web)
+
+Q: What is photosynthesis and what are its main stages?
+
+A: Based on the available sources, here is a synthesized answer that draws from multiple references [1], [2], [3]. The sources broadly agree on the main points; differences in emphasis are noted in each reference [1].
+
+References:
+  [1] (wikipedia) Photosynthesis
+      https://en.wikipedia.org/wiki/Photosynthesis
+  [2] (arxiv) Light-Dependent Reactions of Photosynthesis
+      https://arxiv.org/abs/1706.03762
+  [3] (web) How Plants Make Food
+      https://example.com/plants
+
+========================================================================
+Researching: How do transformer-based language models handle long context windows?
+
+  retrieved 2 sources (1 wiki, 1 arxiv, 0 web)
+
+Q: How do transformer-based language models handle long context windows?
+
+A: Based on the available sources, here is a synthesized answer that draws from multiple references [1], [2]. The sources broadly agree on the main points; differences in emphasis are noted in each reference [1].
+
+References:
+  [1] (wikipedia) Transformer (machine learning model)
+      https://en.wikipedia.org/wiki/Transformer_(machine_learning)
+  [2] (arxiv) Attention Is All You Need
+      https://arxiv.org/abs/1706.03762
+

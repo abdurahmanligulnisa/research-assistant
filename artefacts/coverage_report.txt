@@ -1,0 +1,65 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.3, pytest-8.2.2, pluggy-1.6.0
+rootdir: C:\Users\User\Documents\research-assistant
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.13.0, asyncio-0.23.7, cov-5.0.0, httpx-0.35.0, respx-0.23.1
+asyncio: mode=Mode.AUTO
+collected 127 items
+
+tests\test_ai_smoke.py ................                                  [ 12%]
+tests\test_cache.py .......                                              [ 18%]
+tests\test_cli.py ............                                           [ 27%]
+tests\test_concurrency.py ........                                       [ 33%]
+tests\test_http_mocking.py ...................                           [ 48%]
+tests\test_logging_config.py ....                                        [ 51%]
+tests\test_models.py ...........                                         [ 60%]
+tests\test_repository.py ......                                          [ 65%]
+tests\test_researcher.py ..............                                  [ 76%]
+tests\test_service.py ...........                                        [ 85%]
+tests\test_storage.py .................                                  [ 98%]
+tests\test_web_provider.py ..                                            [100%]
+
+============================== warnings summary ===============================
+tests/test_web_provider.py::test_resilient_ddg_falls_back_to_next_backend
+  C:\Users\User\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py:809: DeprecationWarning: There is no current event loop
+    loop = policy.get_event_loop()
+
+tests/test_web_provider.py::test_resilient_ddg_falls_back_to_next_backend
+  C:\Users\User\AppData\Local\Programs\Python\Python313\Lib\site-packages\pytest_asyncio\plugin.py:814: DeprecationWarning: pytest-asyncio detected an unclosed event loop when tearing down the event_loop
+  fixture: <_WindowsSelectorEventLoop running=False closed=False debug=False>
+  pytest-asyncio will close the event loop for you, but future versions of the
+  library will no longer do so. In order to ensure compatibility with future
+  versions, please make sure that:
+      1. Any custom "event_loop" fixture properly closes the loop after yielding it
+      2. The scopes of your custom "event_loop" fixtures do not overlap
+      3. Your code does not modify the event loop in async fixtures or tests
+  
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+
+---------- coverage: platform win32, python 3.13.3-final-0 -----------
+Name                              Stmts   Miss  Cover   Missing
+---------------------------------------------------------------
+src\__init__.py                       6      1    83%   14
+src\cli.py                          105     10    90%   27, 49, 63-64, 85, 158-161, 207
+src\concurrency\__init__.py           0      0   100%
+src\concurrency\orchestrator.py      55      0   100%
+src\config.py                        32      0   100%
+src\core\__init__.py                  0      0   100%
+src\core\researcher.py              104     13    88%   64, 74, 125-128, 154, 205-214, 253-254
+src\logging_config.py                11      0   100%
+src\models.py                        51      0   100%
+src\services\__init__.py              0      0   100%
+src\services\ai_service.py          130     30    77%   57-58, 93-102, 186-190, 193-195, 221-225, 228-230, 252-254, 265-275, 322-326, 343-345
+src\services\cache.py                56      6    89%   63, 68, 73, 78, 132, 160
+src\services\rate_limiter.py         44     11    75%   81, 83, 122-131, 145-146, 151-152, 155, 160
+src\services\web_provider.py         53     12    77%   82, 95-105, 110-113
+src\storage\__init__.py               0      0   100%
+src\storage\cache_store.py            2      2     0%   26-32
+src\storage\repository.py            79      7    91%   86-87, 105-108, 119
+---------------------------------------------------------------
+TOTAL                               728     92    87%
+
+====================== 127 passed, 2 warnings in 50.34s =======================
