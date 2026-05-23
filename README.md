@@ -439,6 +439,23 @@ concurrency and rate-protects external APIs.
 
 ## 12. Docker
 
+### Multi-stage build
+
+The Dockerfile uses a **two-stage build** for a minimal, secure production image:
+
+- **Builder stage** — installs all dependencies into an isolated virtual environment (`/venv`)
+- **Runtime stage** — copies only `/venv` into a clean `python:3.12-slim` base image
+- Runs as a **non-root user** (`appuser`) for container security
+- Final image contains no build tools, compilers, or pip cache — significantly smaller than a single-stage build
+
+```bash
+# Build
+docker build --platform linux/amd64 -t researcher .
+
+# Inspect final image size
+docker images researcher
+```
+
 ### Build & run (offline demo)
 
 ```bash
@@ -453,19 +470,50 @@ docker run researcher                          # offline demo (default CMD)
 docker run --env-file .env researcher python -m researcher ask "What is AI?"
 ```
 
-### Docker Compose (with PostgreSQL)
+### Run Streamlit (single container, no DB)
+
+```bash
+docker run --env-file .env -p 8501:8501 researcher streamlit run streamlit_app.py --server.address=0.0.0.0
+```
+
+Then open: **http://localhost:8501**
+
+### Docker Compose (app + PostgreSQL + Streamlit)
 
 ```bash
 # Copy and fill in .env first (especially POSTGRES_USER, POSTGRES_PASSWORD)
 cp .env.example .env
 
-docker compose up --build                      # starts db + app
+docker compose up --build                      # starts db + app + streamlit
 docker compose run app python scripts/demo.py --offline
-docker compose down -v                         # stop + remove volumes
+docker compose down                            # stop, keep DB volume
+docker compose down -v                         # stop + remove volumes (wipes history)
 ```
 
 > **Replace** `POSTGRES_USER` and `POSTGRES_PASSWORD` in `.env` with
 > strong credentials for any deployment beyond your local machine.
+
+---
+
+### Rate limiting
+
+The project includes a custom **token-bucket rate limiter** (`src/services/rate_limiter.py`)
+with per-source defaults:
+
+| Source    | Default rate |
+|-----------|--------------|
+| Wikipedia | 10 req/s     |
+| arXiv     | 2 req/s      |
+| Web       | 1 req/s      |
+
+The limiter raises `RateLimitExceeded` which integrates with the `tenacity`
+retry loop in `AIService` — requests are automatically retried with
+exponential backoff when the rate limit is hit. Construct a custom limiter:
+
+```python
+from src.services.rate_limiter import TokenBucketRateLimiter
+limiter = TokenBucketRateLimiter(rate=5.0, burst=10)  # 5 req/s, burst of 10
+```
 
 ---
 
