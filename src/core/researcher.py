@@ -99,9 +99,9 @@ def _make_http_client() -> httpx.AsyncClient:
         headers={
             "User-Agent": (
                 "AsyncResearchAssistant/1.0 "
-                "(https://github.com/YOUR/REPO; research-assistant@example.com)"
-            )
-        },
+                "(https://github.com/abdurahmanligulnisa/research-assistant; research-assistant@example.com)"
+                )
+                },
     )
 
 
