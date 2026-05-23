@@ -1,0 +1,21 @@
+=== Sequential vs Concurrent Benchmark ===
+  N=5, max_concurrent=5, mode=LIVE (real network)
+
+  [1/2] Clearing caches … done.
+  [2/2] Running SEQUENTIAL … 45.513s
+  [3/3] Clearing caches … done.
+  [4/4] Running CONCURRENT … 5.158s
+
++-----------------+------------+------------+
+| Mode            |   Time (s) |    Speedup |
++-----------------+------------+------------+
+| Sequential      |     45.513 |      1.00x |
+| Concurrent      |      5.158 |      8.82x |
++-----------------+------------+------------+
+
+  N=5 questions × 3 sources, max_concurrent=5 (semaphore)
+  Mode: LIVE (real network)
+  Speedup: 8.82x  (45.513s → 5.158s)
+
+Caches were cleared before each timed run.
+Both runs executed on the same machine in the same process invocation.

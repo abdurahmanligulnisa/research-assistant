@@ -179,3 +179,131 @@ arxiv_limiter = TokenBucketRateLimiter(rate=2.0, capacity=5)
 #: Generic web / DuckDuckGo limiter.  DDG is aggressive about rate-limiting;
 #: keep at 1 req/s to avoid empty-result responses under burst traffic.
 web_limiter = TokenBucketRateLimiter(rate=1.0, capacity=3)
+
+
+# ---------------------------------------------------------------------------
+# LLM tokens-per-minute (TPM) limiter
+# ---------------------------------------------------------------------------
+
+class LlmTpmLimiter:
+    """Token-aware rate limiter that enforces a tokens-per-minute (TPM) ceiling.
+
+    Unlike :class:`TokenBucketRateLimiter`, which counts *requests*, this
+    class counts **LLM prompt + completion tokens** consumed per minute.
+    Each :meth:`consume` call takes the actual token count reported by the
+    provider and deducts it from the rolling 60-second budget.
+
+    Why TPM instead of RPM?
+    -----------------------
+    Provider rate-limit contracts (Anthropic, OpenAI, Google) are expressed
+    in tokens-per-minute, *not* requests-per-minute.  A single synthesis call
+    that produces 800 completion tokens consumes the same quota as eight
+    100-token calls.  Request-rate limiting therefore cannot prevent
+    ``429 RateLimitError`` responses under heavy load; only TPM tracking can.
+
+    Algorithm
+    ---------
+    Uses the same sliding token-bucket mechanic as
+    :class:`TokenBucketRateLimiter`, but:
+
+    - The bucket capacity is ``tpm_limit`` (tokens, not requests).
+    - The refill rate is ``tpm_limit / 60`` tokens per second (i.e. the
+      full budget refills after exactly one minute).
+    - :meth:`consume` accepts the number of LLM tokens used by one call.
+
+    Parameters
+    ----------
+    tpm_limit:
+        Maximum tokens per minute.  Anthropic claude-sonnet-4 defaults to
+        40 000 TPM on the free tier; set higher for paid tiers.
+    """
+
+    #: Anthropic claude-sonnet-4 free-tier default (tokens/minute).
+    ANTHROPIC_SONNET_FREE_TPM: int = 40_000
+    #: OpenAI gpt-4o-mini default (tokens/minute).
+    OPENAI_GPT4O_MINI_TPM: int = 200_000
+    #: Google Gemini 2.0 Flash default (tokens/minute).
+    GOOGLE_GEMINI_FLASH_TPM: int = 1_000_000
+
+    def __init__(self, tpm_limit: int = ANTHROPIC_SONNET_FREE_TPM) -> None:
+        if tpm_limit < 1:
+            raise ValueError(f"tpm_limit must be ≥ 1, got {tpm_limit!r}")
+        self._tpm_limit = float(tpm_limit)
+        # Refill rate: full budget recovers in exactly 60 seconds.
+        self._rate_per_second: float = self._tpm_limit / 60.0
+        self._available: float = self._tpm_limit   # start with full minute budget
+        self._last_refill: float = time.monotonic()
+
+    def _refill(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self._last_refill
+        self._available = min(
+            self._tpm_limit,
+            self._available + elapsed * self._rate_per_second,
+        )
+        self._last_refill = now
+
+    def consume(self, tokens: int) -> None:
+        """Deduct *tokens* (prompt + completion) from the rolling TPM budget.
+
+        Parameters
+        ----------
+        tokens:
+            Total LLM tokens consumed by one call (prompt tokens +
+            completion tokens).  Pass ``prompt_tokens + completion_tokens``
+            as reported by the provider response.
+
+        Raises
+        ------
+        RateLimitExceeded
+            If the requested token count exceeds the remaining budget.
+            The caller's tenacity retry loop will back off and retry.
+        """
+        if tokens < 1:
+            return   # guard against zero/negative from malformed responses
+        self._refill()
+        if self._available < tokens:
+            wait = (tokens - self._available) / self._rate_per_second
+            logger.warning(
+                "llm_tpm_limit_exceeded",
+                extra={
+                    "available_tokens": round(self._available),
+                    "requested_tokens": tokens,
+                    "retry_after_s": round(wait, 1),
+                    "tpm_limit": int(self._tpm_limit),
+                },
+            )
+            raise RateLimitExceeded(
+                f"LLM TPM budget exhausted. "
+                f"Available: {self._available:.0f} tokens, requested: {tokens}. "
+                f"Retry after ≈{wait:.1f}s."
+            )
+        self._available -= tokens
+        logger.debug(
+            "llm_tpm_consumed",
+            extra={
+                "consumed": tokens,
+                "remaining": round(self._available),
+                "tpm_limit": int(self._tpm_limit),
+            },
+        )
+
+    @property
+    def available_tokens(self) -> float:
+        """Remaining token budget after refilling for elapsed time (read-only)."""
+        self._refill()
+        return self._available
+
+    def __repr__(self) -> str:
+        return (
+            f"LlmTpmLimiter("
+            f"tpm_limit={int(self._tpm_limit)}, "
+            f"available≈{self.available_tokens:.0f})"
+        )
+
+
+#: Module-level LLM TPM limiter.  Defaults to Anthropic claude-sonnet-4
+#: free-tier (40 000 TPM).  Override by constructing a new instance with
+#: the appropriate limit for your provider and tier, or set the environment
+#: variable ``LLM_TPM_LIMIT`` and pass it at construction time.
+llm_tpm_limiter = LlmTpmLimiter(tpm_limit=LlmTpmLimiter.ANTHROPIC_SONNET_FREE_TPM)

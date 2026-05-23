@@ -7,12 +7,11 @@ database-backed *repository*, not an in-memory cache).  This shim
 re-exports every public symbol so that code using either name works
 identically.
 
-OOP encapsulation note
-----------------------
-The connection pool is now owned by :class:`ResearchRepository` as a
-private instance attribute (``self._pool``).  There is no module-level
-``_pool`` global in ``repository.py``; all mutable pool state lives inside
-the class, preserving proper OOP encapsulation.
+Connection-pool note
+--------------------
+Pool state is managed via the module-level ``_pool`` variable and
+``_get_pool()`` function in ``repository.py``; it is not an instance
+attribute of :class:`ResearchRepository`.
 
 Usage (spec-compliant import)::
 
