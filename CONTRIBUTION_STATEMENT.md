@@ -32,9 +32,9 @@
 - `docs/architecture.md` (reviewed and expanded with Fatima)
 
 **Reviewed (PRs reviewed and merged):**
-- PRs: #3, #6, #9, #10, #16
+- PRs: #3, #6, #9, #10, #16, #17, #19, #20
 
-**Approximate share of commits:** 35%
+**Approximate share of commits:** 34%
 
 ---
 
@@ -46,7 +46,7 @@
 - `src/storage/cache_store.py` — in-process dict-backed TTL cache store
 - `src/cli.py` — Click CLI (ask, history, --sources, --no-cache, --json-output)
 - `docs/architecture.md` — architecture diagram and component overview
-- `streamlit_app.py` — 967-line Streamlit web UI integrated with run_research()
+- `streamlit_app.py` — Streamlit web UI integrated with run_research()
 - `assets/logo.jpeg`
 - `artefacts/bench_results.txt` — live network benchmark (sequential vs concurrent)
 - `artefacts/coverage_report.txt` — pytest --cov output (87% coverage)
@@ -57,15 +57,15 @@
 - `report/report.tex` — LaTeX source of the team report
 - `report/report.pdf` — compiled report PDF
 - `report/slides.pdf` — compiled presentation slides PDF
-- PRs: #3, #6, #9, #10, #13, #16
+- PRs: #3, #6, #9, #10, #13, #16, #18, #20
 
 **Co-owned (paired or substantially edited):**
 - `docs/architecture.md` (with Fidan)
 
 **Reviewed (PRs reviewed and merged):**
-- PRs: #2, #5, #7, #8, #12, #15
+- PRs: #2, #5, #7, #8, #12, #15, #19
 
-**Approximate share of commits:** 32%
+**Approximate share of commits:** 33%
 
 ---
 
@@ -78,7 +78,8 @@
 - `researcher/__main__.py` — python -m researcher entry point
 - `src/services/cache.py` — TTL in-memory cache with --no-cache bypass
 - `src/services/web_provider.py` — DuckDuckGo / Tavily / Serper adapters
-- `tests/conftest.py` — FakeLLM, FakeWebSearch, no_real_ai autouse, clear_cache autouse
+- `src/services/llm_tpm_limiter.py` — LlmTpmLimiter for TPM tracking
+- `tests/conftest.py` — FakeLLM, FakeWebSearch, no_real_ai autouse
 - `tests/test_ai_smoke.py` — provided smoke tests (verified not modified)
 - `tests/test_cache.py`
 - `tests/test_cli.py`
@@ -95,13 +96,13 @@
 - `.github/workflows/ci.yml` — GitHub Actions CI (ruff, mypy, pytest, docker build)
 - `.github/pull_request_template.md` — PR hygiene template
 - `CONTRIBUTION_STATEMENT.md`
-- PRs: #2, #5, #8, #12
+- PRs: #2, #5, #8, #12, #17, #19
 
 **Co-owned (paired or substantially edited):**
 - `docker-compose.yml` (reviewed with Fatima)
 
 **Reviewed (PRs reviewed and merged):**
-- PRs: #1, #3, #4, #6, #7, #9, #10, #11, #13, #14, #16
+- PRs: #1, #3, #4, #6, #7, #9, #10, #11, #13, #14, #16, #18, #20
 
 **Approximate share of commits:** 33%
 
@@ -128,8 +129,8 @@ By signing below, we affirm that:
 - Every line of code in the repository can be defended by at least one team member.
 - AI assistant usage has been disclosed as described above.
 
-| Member | Signature | Date |
-|---|---|---|
-| Fidan Baghirova | __________________________ | 2026-05-23 |
-| Fatima Alibabayeva | __________________________ | 2026-05-23 |
-| Gulnisa Abdurahmanli | __________________________ | 2026-05-23 |
+| Member | Date |
+|---|---|
+| Fidan Baghirova  | 2026-05-23 |
+| Fatima Alibabayeva  | 2026-05-23 |
+| Gulnisa Abdurahmanli  | 2026-05-23 |
