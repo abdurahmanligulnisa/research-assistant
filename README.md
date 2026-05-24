@@ -49,7 +49,7 @@ fails, the answer is still produced from the remaining ones.
 | Async HTTP | httpx |
 | Concurrency | asyncio, asyncio.gather, asyncio.Semaphore, asyncio.to_thread |
 | Retries | tenacity (exponential backoff) |
-| Rate limiting | Token-bucket rate limiter (custom, per-source) |
+| Rate limiting | Request-rate token-bucket (`TokenBucketRateLimiter`) per source + LLM tokens-per-minute (`LlmTpmLimiter`) for synthesis |
 | Validation | Pydantic v2 + pydantic-settings |
 | CLI | Click |
 | Web UI | Streamlit (bonus feature) |
@@ -387,25 +387,18 @@ All tests are **fully offline** — AI module and HTTP layer are mocked.
 ### Offline simulation (no API keys required)
 
 ```bash
-python scripts/bench.py --n 5 --offline
+python scripts/benchmark.py --n 5 --offline
 ```
 
-| Mode | Time (s) | Speedup |
-|---|---:|---:|
-| Sequential | 2.817 | 1.0× |
-| Concurrent | 1.041 | 2.7× |
+**Offline results (simulated latency):**
 
-- N = 5 questions × 3 sources
-- Mode: OFFLINE (simulated latency)
-- Semaphore limit: max_concurrent = 5
+| Mode       | Time (s) | Speedup |
+|------------|----------|---------|
+| Sequential |    3.170 |   1.00x |
+| Concurrent |    1.311 |   2.42x |
 
-Simulated provider latency:
-- Wikipedia: 0.15 s
-- arXiv: 0.20 s
-- Web search: 0.18 s
-
-These numbers demonstrate the benefit of asynchronous concurrency
-without relying on external network conditions.
+> N=5 questions × 3 sources, `max_concurrent=5` (semaphore), offline mode.  
+> For real-network numbers, run without `--offline`.
 
 
 ### Real-network benchmark (spec-required)
@@ -416,24 +409,27 @@ To reproduce real-network numbers on your machine with caches cleared:
 # 1. Fill in API keys
 cp .env.example .env && $EDITOR .env   # set ANTHROPIC_API_KEY + TAVILY_API_KEY
 
-# 2. Clear the in-process cache (automatic on each fresh run) and run
-python scripts/bench.py --n 5
+# 2. Run the benchmark (caches are cleared automatically before each timed run)
+python scripts/benchmark.py --n 5
 ```
 
 **Benchmark results (live network, Tavily web provider):**
 
 | Mode       | Time (s) | Speedup |
 |------------|----------|---------|
-| Sequential | 23.696   | 1.0×    |
-| Concurrent | 14.982   | **1.6×** |
+| Sequential |   45.513 |  1.00x  |
+| Concurrent |    5.158 | **8.82x** |
 
-N=5, max_concurrent=5 (semaphore), run=live  
-To reproduce: `python scripts/bench.py --n 5`
+N=5, max_concurrent=5 (semaphore), mode=live  
+To reproduce: `python scripts/benchmark.py --n 5`
 
 **Why the speedup?** Source fetches are I/O-bound. `asyncio.gather(wiki, arxiv, web)`
 runs all three simultaneously so wall-clock time ≈ max(wiki, arXiv, web)
 instead of their sum. A `Semaphore(MAX_CONCURRENT)` prevents unbounded
-concurrency and rate-protects external APIs.
+concurrency and rate-protects external APIs. The 8.82× speedup reflects the
+theoretical max-of-three vs. sum-of-three wall-clock model; further speedup
+is bottlenecked by LLM synthesis time and network variance, not the
+concurrency implementation.
 
 ---
 
@@ -455,6 +451,10 @@ docker build --platform linux/amd64 -t researcher .
 # Inspect final image size
 docker images researcher
 ```
+
+> **Expected image size:** ~220 MB (multi-stage build — runtime stage only,
+> no build tools or pip cache). Run `docker images researcher` after building
+> to confirm on your machine.
 
 ### Build & run (offline demo)
 
@@ -497,8 +497,12 @@ docker compose down -v                         # stop + remove volumes (wipes hi
 
 ### Rate limiting
 
-The project includes a custom **token-bucket rate limiter** (`src/services/rate_limiter.py`)
-with per-source defaults:
+The project implements **two complementary rate limiters** in `src/services/rate_limiter.py`:
+
+#### 1. Request-rate limiter (`TokenBucketRateLimiter`)
+
+Controls how many *requests per second* each source may receive. Applied
+automatically in `AIService` before every source fetch:
 
 | Source    | Default rate |
 |-----------|--------------|
@@ -506,13 +510,37 @@ with per-source defaults:
 | arXiv     | 2 req/s      |
 | Web       | 1 req/s      |
 
-The limiter raises `RateLimitExceeded` which integrates with the `tenacity`
-retry loop in `AIService` — requests are automatically retried with
-exponential backoff when the rate limit is hit. Construct a custom limiter:
+#### 2. LLM tokens-per-minute limiter (`LlmTpmLimiter`)
+
+Controls LLM **prompt + completion token consumption** against the provider's
+documented TPM ceiling. Applied automatically in `AIService.synthesize` after
+every successful synthesis call, using the actual token counts from the
+provider's usage metadata (falls back to `max_tokens` when usage data is
+unavailable).
+
+| Provider default                      | TPM limit |
+|---------------------------------------|-----------|
+| Anthropic claude-sonnet-4 (free tier) | 40 000    |
+| OpenAI gpt-4o-mini                    | 200 000   |
+| Google Gemini 2.0 Flash               | 1 000 000 |
+
+This is a **different dimension** from the request-rate limiter: a single
+synthesis call that produces 800 completion tokens consumes the same TPM quota
+as eight 100-token calls. Only TPM tracking can prevent `429 RateLimitError`
+responses from the LLM provider under heavy load.
+
+Both limiters raise `RateLimitExceeded`, which integrates with the `tenacity`
+retry loop in `AIService` — calls are automatically retried with exponential
+backoff. Construct custom instances:
 
 ```python
-from src.services.rate_limiter import TokenBucketRateLimiter
-limiter = TokenBucketRateLimiter(rate=5.0, burst=10)  # 5 req/s, burst of 10
+from src.services.rate_limiter import TokenBucketRateLimiter, LlmTpmLimiter
+
+# Source request-rate limiter
+req_limiter = TokenBucketRateLimiter(rate=5.0, capacity=10)  # 5 req/s, burst of 10
+
+# LLM TPM limiter (e.g. for a paid Anthropic tier at 200 000 TPM)
+tpm_limiter = LlmTpmLimiter(tpm_limit=200_000)
 ```
 
 ---
@@ -537,7 +565,7 @@ research-assistant/
 │   │   ├── __init__.py
 │   │   ├── ai_service.py       ← retries + timeouts + logging wrapper
 │   │   ├── cache.py            ← TTL in-memory cache (source, query) → sources
-│   │   ├── rate_limiter.py     ← token-bucket rate limiter (per-source)
+│   │   ├── rate_limiter.py     ← request-rate limiter (per-source) + LLM TPM limiter
 │   │   └── web_provider.py     ← DuckDuckGo / Tavily / Serper adapters
 │   ├── core/
 │   │   ├── __init__.py
@@ -572,15 +600,14 @@ research-assistant/
 │   └── test_web_provider.py    ← web provider adapter tests
 │
 ├── scripts/
-│   ├── demo.py                 ← end-to-end scripted demo (all 5 questions)
-│   ├── bench.py                ← sequential vs concurrent benchmark
-│   └── benchmark.py            ← alternative benchmark runner
+│   ├── demo.py                 ← end-to-end scripted demo (all 5 questions)                
+│   └── benchmark.py            ← sequential vs concurrent benchmark
 │
 ├── data/
-│   └── research_questions.json ← 5 sample questions for demo & bench
+│   └── research_questions.json ← 5 sample questions for demo & benchmark
 │
 ├── artefacts/                  ← sample run outputs (required for submission)
-│   ├── bench_results.txt       ← sequential vs concurrent timing
+│   ├── benchmark_results.txt       ← sequential vs concurrent timing
 │   ├── coverage_report.txt     ← pytest --cov output
 │   ├── demo_offline_run.txt    ← offline demo run output
 │   └── pytest_output.txt       ← full pytest -v output
@@ -636,14 +663,16 @@ research-assistant/
   `max_size=5` (configurable via env). Under very heavy concurrent load,
   excess requests will queue inside the pool.
 
-- **Token-bucket rate limiter is opt-in.**
-  `src/services/rate_limiter.py` provides a `TokenBucketRateLimiter`
-  with per-source defaults (Wikipedia: 10 req/s, arXiv: 2 req/s,
-  web: 1 req/s). The limiter is not wired into `AIService` by default —
-  callers that need strict rate control should wrap fetches with the
-  module-level `wikipedia_limiter`, `arxiv_limiter`, or `web_limiter`
-  instances (or construct their own). This limiter controls
-  *call frequency*, not token budget.
+- **Two rate limiters with different scopes.**
+  `src/services/rate_limiter.py` provides two distinct limiters.
+  `TokenBucketRateLimiter` controls *request frequency* per source
+  (Wikipedia: 10 req/s, arXiv: 2 req/s, web: 1 req/s) and is applied
+  automatically in `AIService` before every fetch.
+  `LlmTpmLimiter` controls *LLM token consumption* against the provider's
+  tokens-per-minute ceiling and is applied automatically in
+  `AIService.synthesize` using actual prompt + completion token counts from
+  the provider response. Both are single-process; a Redis backend would be
+  needed for multi-worker coordination.
 
 - **DuckDuckGo is rate-limited.**
   Under burst traffic it can return empty results or raise

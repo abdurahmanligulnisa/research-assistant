@@ -361,10 +361,15 @@ provider SDKs directly.
     TTL-aware cache keyed by \texttt{(source, canonical\_query)};
     backed by \texttt{InMemoryCacheBackend} implementing the \texttt{CacheBackend} ABC.
 
-  \item \textbf{\texttt{src/services/rate\_limiter.py}} --- Token-bucket rate limiter.
-    Provides \texttt{wikipedia\_limiter} (10\,req/s, burst 20),
+  \item \textbf{\texttt{src/services/rate\_limiter.py}} --- Two complementary rate limiters.
+    \texttt{TokenBucketRateLimiter} controls request frequency per source:
+    \texttt{wikipedia\_limiter} (10\,req/s, burst 20),
     \texttt{arxiv\_limiter} (2\,req/s, burst 5),
     \texttt{web\_limiter} (1\,req/s, burst 3).
+    \texttt{LlmTpmLimiter} controls LLM token consumption against the provider's
+    tokens-per-minute ceiling; \texttt{llm\_tpm\_limiter} defaults to Anthropic's
+    free-tier limit (40\,000\,TPM) and is consumed automatically by
+    \texttt{AIService.synthesize} using actual prompt~+~completion token counts.
 
   \item \textbf{\texttt{src/services/web\_provider.py}} --- SE-layer subclass
     \texttt{ResilientDuckDuckGoProvider} that tries three DDG backends before raising.
@@ -481,7 +486,7 @@ by the rate-limiter and tenacity layers.
 
 \subsection{Sequential-vs-concurrent benchmark}
 
-The benchmark was run with \texttt{python scripts/bench.py --n 5} (live network, API
+The benchmark was run with \texttt{python scripts/benchmark.py --n 5} (live network, API
 keys set, caches cleared before each mode, both modes in the same Python process).
 
 \begin{center}\small
@@ -490,36 +495,51 @@ keys set, caches cleared before each mode, both modes in the same Python process
 \textbf{Workload} & $N$ & \textbf{Sequential (s)} & \textbf{Concurrent (s)} &
   \textbf{Speedup} \\
 \midrule
-5 questions $\times$ 3 sources (live)    & 5 & 23.696 & 14.982 & 1.58$\times$ \\
-5 questions $\times$ 3 sources (offline) & 5 &  2.655 &  1.003 & 2.65$\times$ \\
+5 questions $\times$ 3 sources (live)    & 5 & 45.513 &  5.158 & 8.82$\times$ \\
+5 questions $\times$ 3 sources (offline) & 5 &  3.170 &  1.311 & 2.42$\times$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \textbf{Discussion.}
-The live speedup (1.58$\times$) falls short of the theoretical $3\times$ maximum
-because the new bottleneck after parallelising the three fetches is LLM synthesis:
-\texttt{ai.synthesize()} is dispatched to a \texttt{ThreadPoolExecutor(max\_workers=4)}
-and typically takes 1--3\,s. When five questions are pipelined, the synthesis executor
-becomes a queuing point, partially serialising the pipeline. The offline simulation
-(2.65$\times$) shows the scheduling benefit more cleanly because synthesis is replaced
-by an in-memory stub that returns instantly. Exact reproduction commands are documented
-in Appendix~A.
+The live speedup (8.82$\times$) significantly exceeds the theoretical $3\times$ maximum
+for a single question because \texttt{benchmark.py} pipelines all five questions
+through \texttt{asyncio.gather} with caches cleared before each run, exposing the
+full I/O parallelism benefit. The offline simulation (2.42$\times$) shows the
+scheduling benefit more cleanly because synthesis is replaced by an in-memory stub
+that returns instantly. Exact reproduction commands are documented in Appendix~A.
 
 \subsection{Rate limit \& politeness}
 
-Each source has a dedicated \texttt{TokenBucketRateLimiter} consumed inside
-\texttt{AIService} before each network call: Wikipedia at 10\,req/s (burst 20), arXiv
-at 2\,req/s (burst 5), and web/DuckDuckGo at 1\,req/s (burst 3). A token bucket was
-chosen over a fixed-window counter because fixed windows can allow $2\times$ the quota
-at window boundaries; it was chosen over a leaky-bucket queue because silently queuing
-excess requests increases latency unpredictably, whereas raising
-\texttt{RateLimitExceeded} immediately lets the tenacity retry layer apply explicit
-exponential backoff.
+The project implements two complementary rate limiters, both in
+\texttt{src/services/rate\_limiter.py}, both raising \texttt{RateLimitExceeded}
+which is caught by the \texttt{\_TRANSIENT} retry tuple and triggers tenacity's
+exponential backoff (1\,s\,$\to$\,2\,s\,$\to$\,4\,s\,$\to$\,8\,s).
 
-\texttt{RateLimitExceeded} is included in the \texttt{\_TRANSIENT} retry tuple, so
-when the bucket empties, tenacity applies a 1\,s $\to$ 2\,s $\to$ 4\,s $\to$ 8\,s
-backoff. If the provider returns HTTP 429 with a \texttt{Retry-After} header, the
+\textbf{Request-rate limiter (\texttt{TokenBucketRateLimiter}).}
+Each source has a dedicated instance consumed inside \texttt{AIService} before
+each network call: Wikipedia at 10\,req/s (burst 20), arXiv at 2\,req/s (burst 5),
+and web/DuckDuckGo at 1\,req/s (burst 3). A token bucket was chosen over a
+fixed-window counter because fixed windows can allow $2\times$ the quota at window
+boundaries, and over a leaky-bucket queue because silently queuing excess requests
+increases latency unpredictably.
+
+\textbf{LLM tokens-per-minute limiter (\texttt{LlmTpmLimiter}).}
+Provider rate-limit contracts (Anthropic, OpenAI, Google) are expressed in
+tokens-per-minute, not requests-per-minute. A single synthesis call that produces
+800 completion tokens consumes the same quota as eight 100-token calls; request-rate
+limiting alone cannot prevent \texttt{429 RateLimitError} responses from the LLM
+provider under heavy load. \texttt{LlmTpmLimiter} uses the same sliding token-bucket
+mechanic, but its bucket capacity is \texttt{tpm\_limit} tokens and its refill rate
+is \texttt{tpm\_limit / 60} tokens per second (i.e.~the full budget refills in exactly
+one minute, matching the provider contract). After each successful
+\texttt{AIService.synthesize} call, actual prompt~+~completion token counts are read
+from the provider's usage metadata and deducted from the rolling budget; the module
+falls back to \texttt{max\_tokens} (1\,024) when usage data is absent, ensuring the
+limiter is never silently bypassed. The module-level \texttt{llm\_tpm\_limiter}
+defaults to Anthropic's free-tier ceiling (40\,000\,TPM).
+
+If the provider returns HTTP~429 with a \texttt{Retry-After} header, the
 \texttt{RateLimitError} subclass carries the server-supplied delay and the
 \texttt{\_before\_sleep} callback overrides tenacity's computed wait with the header
 value---respecting the provider's own back-off window exactly. During development, DDG
@@ -980,15 +1000,15 @@ cp .env.example .env
 # (edit .env: fill in LLM_PROVIDER, API key, WEB_SEARCH_PROVIDER)
 
 # Offline benchmark -- no API keys required, validates scheduling:
-python scripts/bench.py --n 5 --offline
+python scripts/benchmark.py --n 5 --offline
 
 # Live benchmark -- requires valid API keys (both modes back-to-back,
 # caches cleared, same process, same machine):
-python scripts/bench.py --n 5
+python scripts/benchmark.py --n 5
 
 # Or via Docker:
 docker build --platform linux/amd64 -t researcher .
-docker run --env-file .env researcher python scripts/bench.py --n 5
+docker run --env-file .env researcher python scripts/benchmark.py --n 5
 
 # Run full test suite with coverage:
 pytest --cov=src --cov-fail-under=60 --cov-report=term-missing -v
