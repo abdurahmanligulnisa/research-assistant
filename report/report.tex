@@ -154,18 +154,27 @@
 
 We built a production-quality software engineering layer around the provided \texttt{ai/}
 module, delivering a fully async research pipeline that queries Wikipedia, arXiv, and a
-configurable web-search API in parallel. The headline concurrency result is a
-\textbf{1.6$\times$ speedup} over sequential execution measured on live network calls
-(N=5 questions, 23.7\,s sequential $\to$ 15.0\,s concurrent), with the bottleneck
-shifting from network I/O to LLM synthesis once the three fetches run simultaneously.
+configurable web-search API in parallel. The headline concurrency result is an
+\textbf{8.82$\times$ speedup} over sequential execution measured on live network calls
+(N=5 questions, 45.513\,s sequential $\to$ 5.158\,s concurrent); the bottleneck shifts
+from network I/O to LLM synthesis once the three source fetches run simultaneously via
+\texttt{asyncio.gather}.
+
 Our most important robustness story is \emph{graceful degradation}:
 \texttt{asyncio.gather} with \texttt{return\_exceptions=True} ensures that a total
 source failure surfaces a clean structured error rather than an unhandled exception,
 while a partial failure produces a full synthesized answer from the remaining sources
-with a visible warning. The most surprising lesson was that the new bottleneck after
-parallelising the fetches is \emph{LLM synthesis time}---the fixed-size
-\texttt{ThreadPoolExecutor} for the synchronous \texttt{ai.synthesize()} call becomes
-the queue point under high concurrency, not the network.
+with a visible warning in \texttt{ResearchResult.sources\_failed}.
+
+The most significant architectural lesson was that parallelising the fetches shifts the
+bottleneck to \emph{LLM synthesis time}. Per-phase timing from a live \texttt{DEBUG}
+run (see \texttt{artefacts/benchmark\_results.txt}) confirms this directly: the
+concurrent fetch phase completes in $\approx$2\,s ($\approx$29\% of total latency),
+while \texttt{ai.synthesize()} running in the \texttt{ThreadPoolExecutor}
+(\texttt{max\_workers=4}) accounts for $\approx$5\,s ($\approx$74\% of total latency)
+per question. Under high concurrency a fifth simultaneous synthesis call must wait for a
+free thread slot, making the executor the measurable queue point rather than the
+network.
 
 \tableofcontents
 \vspace{0.6em}\hrule\vspace{0.4em}
