@@ -40,6 +40,8 @@ from src.services.rate_limiter import (
     wikipedia_limiter,
     arxiv_limiter,
     web_limiter,
+    LlmTpmLimiter,
+    llm_tpm_limiter,
 )
 
 logger = logging.getLogger(__name__)
@@ -158,12 +160,16 @@ class AIService:
         wiki_limiter: TokenBucketRateLimiter | None = None,
         arxiv_limiter_: TokenBucketRateLimiter | None = None,
         web_limiter_: TokenBucketRateLimiter | None = None,
+        tpm_limiter: LlmTpmLimiter | None = None,
     ) -> None:
         self._log = logging.getLogger(self.__class__.__name__)
         # Use module-level production defaults unless overridden (e.g. in tests).
         self._wiki_limiter: TokenBucketRateLimiter = wiki_limiter or wikipedia_limiter
         self._arxiv_limiter: TokenBucketRateLimiter = arxiv_limiter_ or arxiv_limiter
         self._web_limiter: TokenBucketRateLimiter = web_limiter_ or web_limiter
+        # TPM limiter tracks LLM prompt+completion tokens against the provider
+        # tokens-per-minute ceiling (distinct from per-source request-rate limiting).
+        self._tpm_limiter: LlmTpmLimiter = tpm_limiter or llm_tpm_limiter
 
     @_make_retry()
     async def fetch_wikipedia(
@@ -345,12 +351,37 @@ class AIService:
                 raise
             else:
                 elapsed = time.perf_counter() - t0
+                # Consume actual LLM tokens from the TPM budget.  The
+                # AnswerWithCitations object carries usage metadata when the
+                # provider returns it; fall back to a conservative estimate
+                # (max_tokens cap) so the limiter is never silently bypassed.
+                usage = getattr(result, "usage", None)
+                if usage is not None:
+                    prompt_tokens = getattr(usage, "input_tokens", 0) or 0
+                    completion_tokens = getattr(usage, "output_tokens", 0) or 0
+                    total_tokens = prompt_tokens + completion_tokens
+                else:
+                    # No usage metadata — use the configured max_tokens as a
+                    # conservative upper-bound so we never over-count.
+                    total_tokens = _SYNTHESIZE_MAX_TOKENS
+                if total_tokens > 0:
+                    try:
+                        self._tpm_limiter.consume(total_tokens)
+                    except RateLimitExceeded:
+                        # Log but do not fail: the answer is already produced.
+                        # The limiter will block the *next* call if needed.
+                        self._log.warning(
+                            "llm_tpm_budget_exceeded_post_call",
+                            extra={"tokens_consumed": total_tokens},
+                        )
                 self._log.info(
                     "synthesize_ok",
                     extra={
                         "attempt": attempt,
                         "citations": len(result.citations),
                         "elapsed_s": round(elapsed, 3),
+                        "tokens_consumed": total_tokens,
+                        "tpm_remaining": round(self._tpm_limiter.available_tokens),
                     },
                 )
                 return result
