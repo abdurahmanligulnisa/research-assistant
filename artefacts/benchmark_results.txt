@@ -19,3 +19,30 @@
 
 Caches were cleared before each timed run.
 Both runs executed on the same machine in the same process invocation.
+=== Synthesis Bottleneck Analysis ===
+
+Observation: after parallelising the three source fetches with asyncio.gather,
+the concurrent total (5.158 s) is NOT simply max(T_wiki, T_arxiv, T_web).
+It also includes LLM synthesis time, which is sequential per question.
+
+Per-question time breakdown (approximate, from synthesize_ok log entries):
+  Source fetch  (concurrent, 3 sources) ≈  1.0 – 2.0 s  per question
+  LLM synthesis (synchronous, thread)   ≈  3.0 – 6.0 s  per question
+
+This means:
+  Wall-clock ≈ N × (max(fetch_times) + synthesis_time)
+             ≈ 5 × (1.5s + ~3.5s)  =  ~25 s   [theoretical]
+  Actual measured: 5.158 s total    [questions partially overlap in thread pool]
+
+The ThreadPoolExecutor (max_workers=4) for ai.synthesize() becomes the
+queue point under high concurrency: when 5 questions fire simultaneously,
+4 synthesis threads run immediately and the 5th waits in the executor queue.
+This is the expected bottleneck once network I/O is no longer the constraint.
+
+Evidence in code:
+  src/services/ai_service.py, line ~70:
+    _synth_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="synth")
+  
+  synthesize() log entry includes elapsed_s per call — run with
+  LOG_LEVEL=DEBUG to observe individual synthesis times:
+    python -m researcher --log-level DEBUG ask "question"
